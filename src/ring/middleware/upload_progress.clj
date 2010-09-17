@@ -11,14 +11,13 @@
 
 (defn- get-session-key
   [request options]
-  (let [cookie-name (options :cookie-name "ring-session")]'
+  (let [cookie-name (or (:cookie-name options) "ring-session")]
     (get-in request [:cookies cookie-name :value])))
 
 (defn- make-progress-listener
   [store key]
   (proxy [ProgressListener] []
     (update [bytes-read content-length items]
-            (clojure.contrib.logging/warn [bytes-read content-length items])
             (let [session (read-session store key)]
               (write-session store key (assoc session :upload-progress
                                               {:bytes-read bytes-read
@@ -81,7 +80,7 @@
     :params           - a merged map of all types of parameter
 
   Also adds an :upload-progress key to the session that indicates the
-current state of any uploads.
+  current state of any uploads.
 
   Takes an optional configuration map. Recognized keys are:
     :encoding - character encoding to use for multipart parsing. If not
