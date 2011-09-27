@@ -11,18 +11,17 @@
 
 (defn- get-session-key
   [request options]
-  (let [cookie-name (or (:cookie-name options) "ring-session")]
+  (let [cookie-name (:cookie-name options "ring-session")]
     (get-in request [:cookies cookie-name :value])))
 
 (defn- make-progress-listener
-  [store key]
+  [swap-session!]
   (proxy [ProgressListener] []
     (update [bytes-read content-length items]
-            (let [session (read-session store key)]
-              (write-session store key (assoc session :upload-progress
-                                              {:bytes-read bytes-read
-                                               :content-length content-length
-                                               :items items}))))))
+      (swap-session! assoc :upload-progress
+                     {:bytes-read bytes-read
+                      :content-length content-length
+                      :items items}))))
 
 (defn- multipart-form?
   "Does a request have a multipart form?"
@@ -31,12 +30,12 @@
     (.startsWith content-type "multipart/form-data")))
 
 (defn- ^FileUpload file-upload
-  [store key]
+  [swap-session!]
   (doto (FileUpload.
     (doto (DiskFileItemFactory.)
       (.setSizeThreshold -1)
       (.setFileCleaningTracker nil)))
-    (.setProgressListener (make-progress-listener store key))))
+    (.setProgressListener (make-progress-listener swap-session!))))
 
 (defn- request-context
   "Create a RequestContext object from a request map."
@@ -60,7 +59,7 @@
 
 (defn- parse-multipart-params
   "Parse a map of multipart parameters from the request."
-  [request encoding store key]
+  [request encoding swap-session!]
   (reduce
     (fn [param-map, ^DiskFileItem item]
       (assoc-param param-map
@@ -70,7 +69,7 @@
           (file-map item))))
     {}
     (.parseRequest
-       (file-upload store key)
+       (file-upload swap-session!)
        (request-context request encoding))))
 
 (defn wrap-upload-progress
@@ -78,6 +77,10 @@
   following keys to the request map:
     :multipart-params - a map of multipart parameters
     :params           - a merged map of all types of parameter
+
+    :read-session     - a zero-argument function that returns the current
+                        content of the session
+    :swap-session!    - like swap! on the current session
 
   Also adds an :upload-progress key to the session that indicates the
   current state of any uploads.
@@ -90,11 +93,18 @@
 "
   [handler session-store & [opts]]
   (fn [request]
-    (let [encoding (or (:encoding opts)
+    (let [sess-key (get-session-key request opts)
+          swap-session! (fn [f & args]
+                          (let [session (read-session session-store sess-key)]
+                            (write-session session-store sess-key
+                                           (apply f session args))))
+          encoding (or (:encoding opts)
                        (:character-encoding request)
                        "UTF-8")
+          request (assoc request :swap-session! swap-session!
+                         :read-session (fn [] (read-session session-store sess-key)))
           params   (if (multipart-form? request)
-                     (parse-multipart-params request encoding session-store (get-session-key request opts))
+                     (parse-multipart-params request encoding swap-session!)
                      {})
           request  (merge-with merge request
                      {:multipart-params params}
