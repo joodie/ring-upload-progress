@@ -1,7 +1,6 @@
 (ns ring.middleware.upload-progress
   "Parse multipart upload into params and provide progress information."
-  (:use [clojure.contrib.def :only (defvar-)]
-        [ring.middleware.params :only (assoc-param)]
+  (:use [ring.middleware.params :only (assoc-param)]
         [ring.middleware.session.store :only (read-session write-session)])
   (:import (org.apache.commons.fileupload
              FileUpload RequestContext ProgressListener)
